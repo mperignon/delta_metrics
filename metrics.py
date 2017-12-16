@@ -1,5 +1,59 @@
 import numpy as np
 from scipy.ndimage import morphology
+from scipy import signal
+import skimage
+
+
+def island_properties(mapfile):
+
+    islands = mapfile['islandmap']
+    landmap = mapfile['landmap']
+
+    islands_filt = signal.medfilt2d(islands.astype(float), 3)
+
+    islandmap, N = skimage.measure.label(islands_filt, return_num = True)
+    EdgeDistMap = morphology.distance_transform_edt(islands_filt)
+
+    rps = skimage.measure.regionprops(islandmap, cache=False)
+
+    Li = [r.major_axis_length for r in rps if r.area > 1]
+    Wi = [r.minor_axis_length for r in rps if r.area > 1]
+    Pi = [r.perimeter for r in rps if r.area > 1]
+    Ai = [r.area for r in rps if r.area > 1]
+
+    island_area = [float(a) / landmap.sum() for a in Ai]
+    island_aspect_ratio = [Li[n] / Wi[n] for n in range(len(Li))]
+    island_shape_factor = [Pi[n] / np.sqrt(Ai[n]) for n in range(len(Li))]
+    island_edge_dist = [EdgeDistMap[islandmap == n].max() for n in range(1,N+1) if rps[n-1].area > 1]
+
+    island_area = np.array(island_area)
+    area_min = 1e-5
+    quantiles, cumprob = ecdf(island_area[island_area > area_min])
+
+    island_properties = {}
+
+    island_properties['ecdf'] = [quantiles, cumprob]
+    island_properties['island_area'] = island_area
+    island_properties['island_aspect_ratio'] = island_aspect_ratio
+    island_properties['island_edge_dist'] = island_edge_dist
+    island_properties['island_shape_factor'] = island_shape_factor
+
+    return island_properties
+    
+    
+def ecdf(sample):
+
+    # convert sample to a numpy array, if it isn't already
+    sample = np.atleast_1d(sample)
+
+    # find the unique values and their corresponding counts
+    quantiles, counts = np.unique(sample, return_counts=True)
+
+    # take the cumulative sum of the counts and divide by the sample size to
+    # get the cumulative probabilities between 0 and 1
+    cumprob = np.cumsum(counts).astype(np.double) / sample.size
+
+    return quantiles, cumprob    
 
 
 def fractal_dimension(data):
@@ -49,7 +103,10 @@ def fractal_dimension(data):
     
 def nearest_edge_distance(mapfile):
 
-    islands = np.minimum(1, mapfile['wetmap'] + (1 - mapfile['landmap'])) == 0
+#     islands = np.minimum(1, mapfile['wetmap'] + (1 - mapfile['landmap'])) == 0
+    
+    islands = mapfile['islandmap']
+    
     EdgeDistMap = morphology.distance_transform_edt(islands)
 
     bins = np.arange(0, np.ceil(EdgeDistMap.max() + 1))

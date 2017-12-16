@@ -16,7 +16,7 @@ def channel_overlap(filenames):
 
     # create empty overlap map arrays
     overlapmap = np.zeros(data.shape)
-    difference, phi, O_phi = np.zeros((3, len(filenames,)))
+    difference, phi, O_phi, f_R = np.zeros((4, len(filenames,)))
 
     # create circular mask
     maskmap, area_mask = create_circular_mask(data, data.shape[1]/2., 0, 55, 5)
@@ -24,6 +24,8 @@ def channel_overlap(filenames):
     # get base image values
     chan_base = data * maskmap
     fw_base = chan_base.sum() / area_mask
+    Adry_base = area_mask * (1 - fw_base)
+    
 
 
     for n,f in enumerate(filenames):
@@ -40,9 +42,11 @@ def channel_overlap(filenames):
         O_phi[n] = 1 - difference[n] / (area_mask * phi[n])
 
         overlapmap = overlapmap + chan_step
+        drymap = np.maximum(0, 1 - overlapmap) * maskmap
+        f_R[n] = 1 - drymap.sum() / Adry_base
 
 
-    return overlapmap, difference, phi, O_phi
+    return overlapmap, difference, phi, O_phi, f_R
     
     
     

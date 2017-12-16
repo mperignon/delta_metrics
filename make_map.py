@@ -64,6 +64,10 @@ def make_map(topo,
     mapfile['edgemap'] = np.maximum(0,
                                     feature.canny(mapfile['allwetmap'])*1 -
                                     feature.canny(mapfile['landmap'])*1)
+                                    
+    islands = np.minimum(1, mapfile['wetmap'] + (1 - mapfile['landmap']))
+    
+    mapfile['islandmap'] = islands == 0
 
 
     if save_file:
