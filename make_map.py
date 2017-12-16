@@ -1,6 +1,7 @@
 import numpy as np
 import cPickle as pickle
 import matplotlib.pyplot as plt
+from skimage import feature
 
 from Seaangles_mod import Seaangles_mod
 from ModifiedSingularityIndex2D import ModifiedSingularityIndex2D
@@ -56,6 +57,14 @@ def make_map(topo,
     mapfile['shoremap'] = shoremap
     mapfile['channelmap'] = channelmap
     mapfile['centerlinemap'] = centerlinemap
+    
+    mapfile['allwetmap'] = ((mapfile['wetmap'] +
+                             mapfile['channelmap']) > 0) * 1.
+                             
+    mapfile['edgemap'] = np.maximum(0,
+                                    feature.canny(mapfile['allwetmap'])*1 -
+                                    feature.canny(mapfile['landmap'])*1)
+
 
     if save_file:
         pickle.dump( mapfile, open( sroot + fname + '.p', "wb" ) )
