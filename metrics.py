@@ -2,46 +2,112 @@ import numpy as np
 from scipy.ndimage import morphology
 from scipy import signal
 import skimage
+from scipy import ndimage
 
 
-def island_properties(mapfile):
+def island_properties(mapfile, smooth = True, properties = True):
+    '''
+    Identifies islands and calculates island morphological properties
+    
+    Input:
+    -------
+    mapfile: dictionary containing, at least,
+             a mask of islands ('islandmap')
+             and a mask of land ('landmap')
+    smooth: boolean for median filter to simplify island mask
+    properties: boolean to calculate properties
+    
+    Output:
+    --------
+    A list containing:
+    island_IMG: array of islands by label
+    
+    If properties = True, also contains:
+    island_props: dictionary of island properties, by label
+    ecdf: cumulative probability distributions of island size
+    edgedist_IMG: array of islands with calculated distances from edges
+    edgedist_hist: histogram of edge distances
+    
+    '''
 
     islands = mapfile['islandmap']
     landmap = mapfile['landmap']
-
-    islands_filt = signal.medfilt2d(islands.astype(float), 3)
-
-    islandmap, N = skimage.measure.label(islands_filt, return_num = True)
-    EdgeDistMap = morphology.distance_transform_edt(islands_filt)
-
-    rps = skimage.measure.regionprops(islandmap, cache=False)
-
-    Li = [r.major_axis_length for r in rps if r.area > 1]
-    Wi = [r.minor_axis_length for r in rps if r.area > 1]
-    Pi = [r.perimeter for r in rps if r.area > 1]
-    Ai = [r.area for r in rps if r.area > 1]
-
-    island_area = [float(a) / landmap.sum() for a in Ai]
-    island_aspect_ratio = [Li[n] / Wi[n] for n in range(len(Li))]
-    island_shape_factor = [Pi[n] / np.sqrt(Ai[n]) for n in range(len(Li))]
-    island_edge_dist = [EdgeDistMap[islandmap == n].max() for n in range(1,N+1) if rps[n-1].area > 1]
-
-    island_area = np.array(island_area)
-    area_min = 1e-5
-    quantiles, cumprob = ecdf(island_area[island_area > area_min])
-
-    island_properties = {}
-
-    island_properties['ecdf'] = [quantiles, cumprob]
-    island_properties['island_area'] = island_area
-    island_properties['island_aspect_ratio'] = island_aspect_ratio
-    island_properties['island_edge_dist'] = island_edge_dist
-    island_properties['island_shape_factor'] = island_shape_factor
-
-    return island_properties
     
+    tot_area = landmap.sum()
+
+    if smooth: 
+        islands_filt = signal.medfilt2d(islands.astype(float), 3)
+    else:
+        islands_filt = islands.astype(float)
+
+    islandmap, N = ndimage.label(islands_filt)
+    
+    returnlist = [islandmap]
+    
+    island_props = {}
+    EdgeDistMap = None
+    histogram = None
+    ecdf_results = None
+    
+    if properties:
+    
+        EdgeDistMap = morphology.distance_transform_edt(islands_filt)
+        
+        # for edge distance map
+        bins = np.arange(0, np.ceil(EdgeDistMap.max() + 1))
+        bin_centers = bins[1:]
+
+        count, bins = np.histogram(EdgeDistMap, bins + 0.5)
+
+        histogram = {}
+        histogram['count'] = count
+        histogram['bin_centers'] = bin_centers
+        
+
+        # for island properties
+        rps = skimage.measure.regionprops(islandmap, cache=False)
+
+        Li = [r.major_axis_length for r in rps if r.minor_axis_length > 0]
+        Wi = [r.minor_axis_length for r in rps if r.minor_axis_length > 0]
+        Pi = [r.perimeter for r in rps if r.minor_axis_length > 0]
+        Ai = [r.area for r in rps if r.minor_axis_length > 0]
+        label = [r.label for r in rps if r.minor_axis_length > 0]
+
+        # island_area = [float(a) / tot_area for a in Ai]
+        island_area = [float(a) / tot_area for a in Ai]
+        island_aspect_ratio = [Li[n] / Wi[n] for n in range(len(Li))]
+        island_shape_factor = [Pi[n] / np.sqrt(Ai[n]) for n in range(len(Li))]
+        island_edge_dist = [EdgeDistMap[islandmap == n].max() for n in range(1,N+1) if rps[n-1].minor_axis_length > 0]
+
+        island_area = np.array(island_area)
+        area_min = 1e-5
+        quantiles, cumprob = ecdf(island_area[island_area > area_min])
+
+        
+        island_props['major_axis'] = Li
+        island_props['minor_axis'] = Wi
+        island_props['perimeter'] = Pi
+        island_props['area'] = island_area
+        island_props['aspt_ratio'] = island_aspect_ratio
+        island_props['edge_dist'] = island_edge_dist
+        island_props['shp_factor'] = island_shape_factor
+        island_props['label'] = label
+        
+        ecdf_results = [quantiles, cumprob]
+        
+        returnlist += [island_props, ecdf_results, EdgeDistMap, histogram]
+
+
+    return returnlist
+    
+
     
 def ecdf(sample):
+    '''
+    Cumulative frequency distribution of island sizes
+    
+    Called by island_properties()
+    '''
 
     # convert sample to a numpy array, if it isn't already
     sample = np.atleast_1d(sample)
@@ -57,6 +123,18 @@ def ecdf(sample):
 
 
 def fractal_dimension(data):
+    '''
+    Fractal dimension of image
+    
+    Input:
+    -------
+    data: Numpy array. For analyzing DeltaRCM output, data should be
+          mapfile['centerlinemap']
+          
+    Output:
+    -------
+    D_frac: fractal dimension of image
+    '''
 
     M,N = data.shape
 
@@ -102,9 +180,23 @@ def fractal_dimension(data):
     
     
 def nearest_edge_distance(mapfile):
-
-#     islands = np.minimum(1, mapfile['wetmap'] + (1 - mapfile['landmap'])) == 0
+    '''
+    For a mask of islands, calculates the nearest distance between every
+    island pixel and the island edge
     
+    Called by island_properties()
+    
+    Input:
+    ------
+    mapfile: dictionary containing, at minimum, a mask of islands ('islandmap')
+    
+    Output:
+    -------
+    EdgeDistMap: array of the minimum distance between every point inside
+                 an island and its edge
+    histogram: distribution of edge distances
+    '''
+
     islands = mapfile['islandmap']
     
     EdgeDistMap = morphology.distance_transform_edt(islands)
@@ -123,6 +215,18 @@ def nearest_edge_distance(mapfile):
     
     
 def fractional_areas(mapfile):
+    '''
+    Calculates areas (in pixels) and fractional areas of different
+    "landcover" categories
+    
+    Input:
+    ------
+    mapfile: dictionary of land types, created by function make_map()
+    
+    Output:
+    -------
+    areas: dictionary containing values of areas and fractional areas
+    '''
 
     area = {}
 
