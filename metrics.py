@@ -5,7 +5,7 @@ import skimage
 from scipy import ndimage
 
 
-def island_properties(mapfile, smooth = True, properties = True):
+def island_properties(islands, smooth = True, properties = True):
     '''
     Identifies islands and calculates island morphological properties
     
@@ -30,10 +30,7 @@ def island_properties(mapfile, smooth = True, properties = True):
     
     '''
 
-    islands = mapfile['islandmap']
-    landmap = mapfile['landmap']
-    
-    tot_area = landmap.sum()
+    tot_area = islands.sum()
 
     if smooth: 
         islands_filt = signal.medfilt2d(islands.astype(float), 3)
@@ -42,9 +39,41 @@ def island_properties(mapfile, smooth = True, properties = True):
 
     islandmap, N = ndimage.label(islands_filt)
     
-    returnlist = [islandmap]
+    
     
     island_props = {}
+    
+    # for island properties
+    rps = skimage.measure.regionprops(islandmap, cache=False)
+
+    Li = [r.major_axis_length for r in rps if r.minor_axis_length > 0]
+    Wi = [r.minor_axis_length for r in rps if r.minor_axis_length > 0]
+    Pi = [r.perimeter for r in rps if r.minor_axis_length > 0]
+    Ai = [r.area for r in rps if r.minor_axis_length > 0]
+    label = [r.label for r in rps if r.minor_axis_length > 0]
+
+    # island_area = [float(a) / tot_area for a in Ai]
+    island_area = [float(a) / tot_area for a in Ai]
+    island_aspect_ratio = [Li[n] / Wi[n] for n in range(len(Li))]
+    island_shape_factor = [Pi[n] / np.sqrt(Ai[n]) for n in range(len(Li))]
+
+
+    island_area = np.array(island_area)
+
+    
+    island_props['major_axis'] = Li
+    island_props['minor_axis'] = Wi
+    island_props['perimeter'] = Pi
+    island_props['area'] = island_area
+    island_props['aspt_ratio'] = island_aspect_ratio
+    island_props['edge_dist'] = island_edge_dist
+    island_props['shp_factor'] = island_shape_factor
+    island_props['label'] = label
+    
+    returnlist = [islandmap, island_props]
+    
+    
+    
     EdgeDistMap = None
     histogram = None
     ecdf_results = None
@@ -64,38 +93,17 @@ def island_properties(mapfile, smooth = True, properties = True):
         histogram['bin_centers'] = bin_centers
         
 
-        # for island properties
-        rps = skimage.measure.regionprops(islandmap, cache=False)
-
-        Li = [r.major_axis_length for r in rps if r.minor_axis_length > 0]
-        Wi = [r.minor_axis_length for r in rps if r.minor_axis_length > 0]
-        Pi = [r.perimeter for r in rps if r.minor_axis_length > 0]
-        Ai = [r.area for r in rps if r.minor_axis_length > 0]
-        label = [r.label for r in rps if r.minor_axis_length > 0]
-
-        # island_area = [float(a) / tot_area for a in Ai]
-        island_area = [float(a) / tot_area for a in Ai]
-        island_aspect_ratio = [Li[n] / Wi[n] for n in range(len(Li))]
-        island_shape_factor = [Pi[n] / np.sqrt(Ai[n]) for n in range(len(Li))]
         island_edge_dist = [EdgeDistMap[islandmap == n].max() for n in range(1,N+1) if rps[n-1].minor_axis_length > 0]
 
-        island_area = np.array(island_area)
         area_min = 1e-5
         quantiles, cumprob = ecdf(island_area[island_area > area_min])
-
         
-        island_props['major_axis'] = Li
-        island_props['minor_axis'] = Wi
-        island_props['perimeter'] = Pi
-        island_props['area'] = island_area
-        island_props['aspt_ratio'] = island_aspect_ratio
         island_props['edge_dist'] = island_edge_dist
-        island_props['shp_factor'] = island_shape_factor
-        island_props['label'] = label
         
         ecdf_results = [quantiles, cumprob]
         
-        returnlist += [island_props, ecdf_results, EdgeDistMap, histogram]
+        
+        returnlist = [islandmap, island_props, ecdf_results, EdgeDistMap, histogram]
 
 
     return returnlist
